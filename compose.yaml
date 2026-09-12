@@ -1,0 +1,21 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: discord-activity-bot:local
+    container_name: discord-activity-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      Bot__DatabasePath: /app/data/activity-bot.db
+    volumes:
+      - bot-data:/app/data
+    stop_grace_period: 30s
+
+volumes:
+  bot-data:
+    external: true
+    name: discord-activity-bot-data
