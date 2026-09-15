@@ -17,7 +17,7 @@ public sealed class EconomyModule(
         var embed = new EmbedBuilder()
             .WithTitle("Sklep serwera")
             .WithDescription(
-                "Kup nagrodę komendą `/buy przedmiot:<nazwa> cel:@osoba`. Saldo sprawdzisz przez `/balance`.")
+                "Kup nagrodę komendą `/kup przedmiot:<nazwa> cel:<osoba>`. Saldo sprawdzisz przez `/balance`.")
             .WithColor(new Color(88, 101, 242));
 
         foreach (var item in items)
@@ -30,12 +30,12 @@ public sealed class EconomyModule(
         await RespondAsync(embed: embed.Build());
     }
 
-    [SlashCommand("buy", "Kupuje wybrany przedmiot ze sklepu.")]
+    [SlashCommand("kup", "Kupuje wybrany przedmiot ze sklepu.")]
     public async Task BuyAsync(
         [Summary("przedmiot", "Identyfikator przedmiotu z /shop"), Autocomplete]
         string itemKey,
-        [Summary("cel", "Użytkownik, wobec którego ma zostać użyta nagroda")]
-        IUser? selectedTarget = null)
+        [Summary("cel", "Osoba aktualnie obecna na kanale głosowym"), Autocomplete]
+        string targetUserId)
     {
         if (Context.Guild is null || Context.User is not SocketGuildUser buyer)
         {
@@ -44,12 +44,14 @@ public sealed class EconomyModule(
         }
 
         await DeferAsync(ephemeral: true);
-        var target = selectedTarget is null ? null : Context.Guild.GetUser(selectedTarget.Id);
+        var target = ulong.TryParse(targetUserId, out var parsedTargetId)
+            ? Context.Guild.GetUser(parsedTargetId)
+            : null;
         var result = await shopService.BuyAsync(Context.Guild, buyer, target, itemKey);
         await Context.Interaction.ModifyOriginalResponseAsync(properties => properties.Content = result.Message);
     }
 
-    [AutocompleteCommand("przedmiot", "buy")]
+    [AutocompleteCommand("przedmiot", "kup")]
     public async Task BuyAutocompleteAsync()
     {
         if (Context.Interaction is not SocketAutocompleteInteraction autocomplete)
@@ -64,6 +66,30 @@ public sealed class EconomyModule(
                         || x.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
             .Take(25)
             .Select(x => new AutocompleteResult($"{x.Name} — {x.Price:N0} pkt", x.Key));
+        await autocomplete.RespondAsync(results);
+    }
+
+    [AutocompleteCommand("cel", "kup")]
+    public async Task TargetAutocompleteAsync()
+    {
+        if (Context.Interaction is not SocketAutocompleteInteraction autocomplete)
+        {
+            return;
+        }
+
+        var query = autocomplete.Data.Current.Value?.ToString() ?? string.Empty;
+        var results = Context.Guild.Users
+            .Where(user => !user.IsBot
+                           && user.Id != Context.User.Id
+                           && user.VoiceChannel is not null
+                           && (user.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                               || user.Username.Contains(query, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(user => user.DisplayName)
+            .Take(25)
+            .Select(user => new AutocompleteResult(
+                $"{user.DisplayName} — {user.VoiceChannel!.Name}",
+                user.Id.ToString()));
+
         await autocomplete.RespondAsync(results);
     }
 

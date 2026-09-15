@@ -12,7 +12,7 @@ namespace DiscordActivityBot.Modules;
 public sealed class SettingsModule(GuildSettingsService settingsService)
     : InteractionModuleBase<SocketInteractionContext>
 {
-    [SlashCommand("logi", "Ustawia kanał tekstowy dla logów aktywności głosowej.")]
+    [SlashCommand("logi", "Ustawia kanał tekstowy dla logów aktywności i zakupów.")]
     public async Task SetLogsAsync(
         [Summary("kanal", "Kanał tekstowy, na który bot ma wysyłać logi")]
         [ChannelTypes(ChannelType.Text)]
@@ -34,7 +34,9 @@ public sealed class SettingsModule(GuildSettingsService settingsService)
         }
 
         await settingsService.SetVoiceLogChannelAsync(Context.Guild.Id, channel.Id);
-        await RespondAsync($"Logi wejść i wyjść będą wysyłane na {channel.Mention}.", ephemeral: true);
+        await RespondAsync(
+            $"Logi aktywności głosowej i zakupów będą wysyłane na {channel.Mention}.",
+            ephemeral: true);
     }
 
     [SlashCommand("wiezienie", "Ustawia kanał głosowy oraz rolę używane podczas kary więzienia.")]

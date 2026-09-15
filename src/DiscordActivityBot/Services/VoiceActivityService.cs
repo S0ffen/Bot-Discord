@@ -20,14 +20,15 @@ public sealed class VoiceActivityService(
     private CancellationTokenSource? _loopCancellation;
     private Task? _heartbeatTask;
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
+        // Po restarcie zamknij poprzednie sesje na ostatniej potwierdzonej obecności.
+        await CloseAllSessionsAsync(null, cancellationToken);
         client.UserVoiceStateUpdated += OnUserVoiceStateUpdatedAsync;
         client.Ready += OnReadyAsync;
 
         _loopCancellation = new CancellationTokenSource();
         _heartbeatTask = RunHeartbeatAsync(_loopCancellation.Token);
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -201,7 +202,7 @@ public sealed class VoiceActivityService(
                 if (connectedUsers.TryGetValue(key, out var connected)
                     && session.ChannelId == EconomyService.Id(connected.Channel.Id))
                 {
-                    session.LastObservedAtUtc = now;
+                    await CheckpointSessionAsync(db, session, now, cancellationToken);
                     session.ChannelName = connected.Channel.Name;
                     session.BotUser.LastKnownDisplayName = connected.User.DisplayName;
                     session.BotUser.UpdatedAtUtc = now;
@@ -300,20 +301,17 @@ public sealed class VoiceActivityService(
         DateTime requestedLeftAtUtc,
         CancellationToken cancellationToken)
     {
-        var leftAtUtc = requestedLeftAtUtc < session.JoinedAtUtc ? session.JoinedAtUtc : requestedLeftAtUtc;
-        var boosts = await db.PointBoosts
-            .Where(x => x.BotUserId == session.BotUserId
-                        && x.ExpiresAtUtc > session.JoinedAtUtc
-                        && x.StartsAtUtc <= leftAtUtc)
-            .ToListAsync(cancellationToken);
-        var awardedPoints = PointCalculator.Calculate(session.JoinedAtUtc, leftAtUtc, _options.PointsPerMinute, boosts);
+        var leftAtUtc = requestedLeftAtUtc < session.LastObservedAtUtc
+            ? session.LastObservedAtUtc
+            : requestedLeftAtUtc;
+        if (leftAtUtc < session.JoinedAtUtc)
+        {
+            leftAtUtc = session.JoinedAtUtc;
+        }
+        await CheckpointSessionAsync(db, session, leftAtUtc, cancellationToken);
 
         session.LeftAtUtc = leftAtUtc;
-        session.LastObservedAtUtc = leftAtUtc;
-        session.DurationSeconds = Math.Max(0, (long)Math.Floor((leftAtUtc - session.JoinedAtUtc).TotalSeconds));
-        session.AwardedPoints = awardedPoints;
-        session.BotUser.Points = checked(session.BotUser.Points + awardedPoints);
-        session.BotUser.UpdatedAtUtc = DateTime.UtcNow;
+        var awardedPoints = session.AwardedPoints;
         logger.LogInformation(
             "Użytkownik {User} opuścił kanał {Channel}. Wejście: {JoinedAtUtc:u}, wyjście: {LeftAtUtc:u}, czas: {Minutes} min, nagroda: {Points} pkt.",
             session.BotUser.LastKnownDisplayName,
@@ -335,7 +333,25 @@ public sealed class VoiceActivityService(
             session.BotUser.Points);
     }
 
-    private async Task CloseAllSessionsAsync(DateTime leftAtUtc, CancellationToken cancellationToken)
+    private async Task CheckpointSessionAsync(
+        BotDbContext db,
+        VoiceSession session,
+        DateTime observedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyCollection<PointBoost> boosts = [];
+        if ((observedAtUtc - session.JoinedAtUtc).TotalMinutes >= session.DurationSeconds / 60 + 1)
+        {
+            boosts = await db.PointBoosts
+                .Where(x => x.BotUserId == session.BotUserId
+                            && x.ExpiresAtUtc > session.JoinedAtUtc
+                            && x.StartsAtUtc <= observedAtUtc)
+                .ToListAsync(cancellationToken);
+        }
+        VoiceSessionClock.CheckpointPresence(session, observedAtUtc, _options.PointsPerMinute, boosts);
+    }
+
+    private async Task CloseAllSessionsAsync(DateTime? leftAtUtc, CancellationToken cancellationToken)
     {
         await _operationGate.WaitAsync(cancellationToken);
         try
@@ -348,7 +364,7 @@ public sealed class VoiceActivityService(
 
             foreach (var session in sessions)
             {
-                await FinishSessionAsync(db, session, leftAtUtc, cancellationToken);
+                await FinishSessionAsync(db, session, leftAtUtc ?? session.LastObservedAtUtc, cancellationToken);
             }
 
             await db.SaveChangesAsync(cancellationToken);

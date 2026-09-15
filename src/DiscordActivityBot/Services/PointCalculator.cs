@@ -8,16 +8,18 @@ public static class PointCalculator
         DateTime joinedAtUtc,
         DateTime leftAtUtc,
         long pointsPerMinute,
-        IReadOnlyCollection<PointBoost> boosts)
+        IReadOnlyCollection<PointBoost> boosts,
+        long previouslyAwardedMinutes = 0)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(previouslyAwardedMinutes);
         var fullMinutes = (long)Math.Floor((leftAtUtc - joinedAtUtc).TotalMinutes);
-        if (fullMinutes <= 0)
+        if (fullMinutes <= previouslyAwardedMinutes)
         {
             return 0;
         }
 
         long total = 0;
-        for (long minute = 1; minute <= fullMinutes; minute++)
+        for (long minute = previouslyAwardedMinutes + 1; minute <= fullMinutes; minute++)
         {
             var earnedAt = joinedAtUtc.AddMinutes(minute);
             var multiplier = boosts

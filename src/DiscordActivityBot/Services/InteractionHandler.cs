@@ -2,8 +2,6 @@ using System.Reflection;
 using Discord;
 using Discord.Interactions;
 using Discord.WebSocket;
-using DiscordActivityBot.Configuration;
-using Microsoft.Extensions.Options;
 
 namespace DiscordActivityBot.Services;
 
@@ -11,7 +9,6 @@ public sealed class InteractionHandler(
     DiscordSocketClient client,
     InteractionService interactionService,
     IServiceProvider serviceProvider,
-    IOptions<BotOptions> botOptions,
     ILogger<InteractionHandler> logger)
 {
     private int _commandsRegistered;
@@ -34,17 +31,9 @@ public sealed class InteractionHandler(
 
         try
         {
-            if (botOptions.Value.TestGuildId != 0)
-            {
-                await interactionService.RegisterCommandsToGuildAsync(botOptions.Value.TestGuildId, true);
-                logger.LogInformation("Komendy slash zarejestrowano testowo na serwerze {GuildId}.",
-                    botOptions.Value.TestGuildId);
-            }
-            else
-            {
-                await interactionService.RegisterCommandsGloballyAsync(true);
-                logger.LogInformation("Komendy slash zarejestrowano globalnie.");
-            }
+            var commands = await interactionService.RegisterCommandsGloballyAsync(deleteMissing: true);
+            logger.LogInformation("Komendy slash zarejestrowano globalnie ({CommandCount}).",
+                commands.Count);
         }
         catch (Exception exception)
         {

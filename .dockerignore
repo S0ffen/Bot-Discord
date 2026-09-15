@@ -9,7 +9,10 @@
 .appdata/
 data/
 backups/
+versions/
 .env
+.env.*
+!.env.example
 appsettings.Local.json
 **/appsettings.Local.json
 *.db

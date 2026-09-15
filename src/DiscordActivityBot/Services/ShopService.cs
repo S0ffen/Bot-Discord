@@ -308,6 +308,9 @@ public sealed class ShopService(
                 target.Id,
                 purchase.PricePaid,
                 purchase.BotUser.Points);
+
+            await SendPurchaseLogAsync(guild, guildSettings, purchase, item, target);
+
             return PurchaseResult.Successful(
                 $"Kupiono **{item.Name}** za **{item.Price:N0} pkt**. {rewardMessage}\n" +
                 $"Saldo: **{purchase.BotUser.Points:N0} pkt**.",
@@ -323,6 +326,56 @@ public sealed class ShopService(
                 purchaseId);
             return PurchaseResult.Failure(
                 "Nagroda została wykonana, ale zapis transakcji wymaga uwagi administratora. Punkty zostały pobrane.");
+        }
+    }
+
+    private async Task SendPurchaseLogAsync(
+        SocketGuild guild,
+        GuildSettingsSnapshot guildSettings,
+        Purchase purchase,
+        ShopItem item,
+        SocketGuildUser target)
+    {
+        if (guildSettings.VoiceLogChannelId is not { } logChannelId)
+        {
+            return;
+        }
+
+        try
+        {
+            var channel = guild.GetTextChannel(logChannelId);
+            if (channel is null)
+            {
+                logger.LogWarning(
+                    "Kanał logów {ChannelId} nie istnieje na serwerze {GuildId}.",
+                    logChannelId,
+                    guild.Id);
+                return;
+            }
+
+            var embed = new EmbedBuilder()
+                .WithTitle("🛒 Zakup w sklepie")
+                .WithColor(new Color(254, 231, 92))
+                .AddField(
+                    "Kupujący",
+                    $"<@{purchase.BotUser.DiscordUserId}> (`{purchase.BotUser.LastKnownDisplayName}`)",
+                    true)
+                .AddField("Przedmiot", $"{item.Name} (`{item.Key}`)", true)
+                .AddField("Cel", target.Mention, true)
+                .AddField("Cena", $"{purchase.PricePaid:N0} pkt", true)
+                .AddField("Pozostałe saldo", $"{purchase.BotUser.Points:N0} pkt", true)
+                .AddField("ID zakupu", purchase.Id, true)
+                .WithCurrentTimestamp()
+                .Build();
+
+            await channel.SendMessageAsync(embed: embed);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Zakup {PurchaseId} zakończył się poprawnie, ale nie udało się wysłać logu na Discordzie.",
+                purchase.Id);
         }
     }
 
@@ -367,7 +420,7 @@ public sealed class ShopService(
     {
         if (target is null)
         {
-            return "Wskaż osobę w parametrze `cel`, np. `/buy przedmiot:wyciszenie cel:@osoba`.";
+            return "Wybierz w parametrze `cel` osobę, która jest teraz na kanale głosowym.";
         }
 
         if (target.Id == buyer.Id)

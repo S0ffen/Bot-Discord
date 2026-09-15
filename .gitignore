@@ -12,8 +12,10 @@ data/
 appsettings.Local.json
 .env
 .env.*
+Boty.md
 !.env.example
 backups/
+versions/
 .dotnet-home/
 .nuget-packages/
 .appdata/
